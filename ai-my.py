@@ -90,6 +90,7 @@ class ReplayMemory():
         """
         return len(self.transitions)
     
+    '''
     def sample(self, batch_size):
         """
         Extracts random samples from the memory. Randomization prevents from biasing to similar past experiences,
@@ -112,8 +113,20 @@ class ReplayMemory():
         # requires_grad_() enables gradient calculation in place
         samples = map(lambda x: torch.cat(x, 0).requires_grad_(True), samples)
         return samples
+    '''
 
-    def sample2(self, batch_size):
+    def sample(self, batch_size):
+        """
+        Extracts random samples from the memory. Randomization prevents from biasing to similar past experiences,
+        e.g. driving along the straight road. Turn experiences still have a chance to be selected from the memory.
+
+        Parameters:
+            batch_size: The number of samples to extract.
+
+        Returns:
+            An iterator to a sequence of batches of last states, new states, last actions, and last rewards.
+        """
+
         samples = random.sample(self.transitions, batch_size)
         samples = zip(*samples)
         # do we really need gradients for our samples?
@@ -121,11 +134,12 @@ class ReplayMemory():
         samples = map(lambda x: torch.tensor(x), samples)
         return samples
 
-test_mem = ReplayMemory(10)
+""" test_mem = ReplayMemory(10)
 test_mem.push((1.1, 2.2, 3, 4.4))
 test_mem.push((9.9, 8.8, 7, 6.6))
-samples = test_mem.sample2(2)
+samples = test_mem.sample(2)
 b1, b2, b3, b4 = samples
+ """
 """ test_mem = ReplayMemory(10)
 test_mem.push((torch.FloatTensor([1.1]), torch.FloatTensor([2.2]), torch.FloatTensor([3.3]), torch.FloatTensor([4.4])))
 test_mem.push((torch.FloatTensor([9.9]), torch.FloatTensor([8.8]), torch.FloatTensor([7.7]), torch.FloatTensor([6.6])))
@@ -176,7 +190,7 @@ class Brain():
         with torch.no_grad(): # we don't need gradient computation here
             t = torch.tensor(state, dtype=torch.float)
             out = self.model(t)
-            p = torch.nn.functional.softmax(out * temperature)
+            p = torch.nn.functional.softmax(out * temperature, dim=-1)
 
         # In probability theory, the multinomial distribution is a generalization of the binomial distribution. 
         # For example, it models the probability of counts for rolling a k-sided die n times. For n independent 
@@ -192,7 +206,7 @@ class Brain():
     def learn(self, batch_state, batch_next_state, batch_action, batch_reward):
         """
         Adjust the weights of the neural network to better fit the environment.
-        
+
         Parameters:
             batch_state: A tuple of states from the memory.
             batch_next_states: A tuple of states following the states from batch_state.
@@ -242,11 +256,33 @@ class Brain():
         self.optimizer.step()
 
 
-    def update(self, state, next_state, action, reward):
-        self.memory.push((state, next_state, action, reward))
+    def update(self, reward, new_state):
+        """
+        Adds a new transition to the memory and adjusts the neural network.
+
+        Parameters:
+            reward: The reward for taking the action which led to the new_state.
+            new_state: The state after taking the last action. 
+
+        Returns:
+            A new action to take.
+        """
+
+        self.memory.push((self.last_state, new_state, self.last_action, self.last_reward))
+
+        self.last_state = new_state
+        self.last_action = self.choose_action(new_state, 100)
+        self.last_reward = reward
+        self.reward_window.append(reward)
+        if len(self.reward_window) > 1000:
+            del self.reward_window[0]
+
         if self.memory.size() >= 2:
-            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample2(2)
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(2)
             self.learn(batch_state, batch_next_state, batch_action, batch_reward)
+
+        return self.last_action
+
 
 
     def save(self):
@@ -257,8 +293,12 @@ class Brain():
 
 
 brain = Brain(5, 3, 0.3)
-a = brain.choose_action((1,2,3,4,5))
-brain.update((1.,2.,3.,4.,5.), (6.,7.,8.,9.,10.), 1, 2.)
-brain.update((0.1,0.2,0.3,0.4,0.5), (0.6,0.7,0.8,0.9,0.1), 0, 4.)
-brain.update((1.1,1.2,1.3,1.4,1.5), (1.6,1.7,1.8,1.9,1.1), 2, 3.)
+a = brain.update(1., (1.,2.,3.,4.,5.))
+a = brain.update(2, (0.1, 0.2, 0.3, 0.4, 0.5))
+a = brain.update(0, (1.6, 1.7, 1.8, 1.9, 1.1))
+
+#a = brain.choose_action((1,2,3,4,5))
+#brain.update((1.,2.,3.,4.,5.), (6.,7.,8.,9.,10.), 1, 2.)
+#brain.update((0.1,0.2,0.3,0.4,0.5), (0.6,0.7,0.8,0.9,0.1), 0, 4.)
+#brain.update((1.1,1.2,1.3,1.4,1.5), (1.6,1.7,1.8,1.9,1.1), 2, 3.)
 print(a)
