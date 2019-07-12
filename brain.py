@@ -25,10 +25,12 @@ class NeuralNetwork(torch.nn.Module):
         #self.n_states = n_states
         #self.n_actions = n_actions
 
-        # create the hidden layer of 32 nodes and the output layer to convert 
+        # create the hidden layers of 64 nodes and the output layer to convert 
         # the states into actions
-        self.fc1 = torch.nn.Linear(n_states, 32)    
-        self.fc2 = torch.nn.Linear(32, n_actions)
+        self.fc1 = torch.nn.Linear(n_states, 64)    
+        #self.fc2 = torch.nn.Linear(32, n_actions)
+        self.fc2 = torch.nn.Linear(64,64)
+        self.fc3 = torch.nn.Linear(64, n_actions)
 
     
     def forward(self, state):
@@ -43,7 +45,9 @@ class NeuralNetwork(torch.nn.Module):
         """
 
         x = torch.nn.functional.relu(self.fc1(state))
-        q = self.fc2(x)
+        x = torch.nn.functional.relu(self.fc2(x))
+        #q = self.fc2(x)
+        q = self.fc3(x)
         return q
 
 
@@ -170,7 +174,7 @@ class Brain():
         self.last_action = 0
         self.last_reward = 0
         # a history of rewards that will be used for calculation of the mean reward over last N rewards        
-        self.reward_window = []
+        self.reward_window = [0]
 
 
     def choose_action(self, state, temperature=10):
@@ -268,31 +272,71 @@ class Brain():
             A new action to take.
         """
 
+        # record the new experience
         self.memory.push((self.last_state, new_state, self.last_action, self.last_reward))
 
-        self.last_state = new_state
-        self.last_action = self.choose_action(new_state, 100)
+        # let the neural network decide what action to take in the new state
+        self.last_action = self.choose_action(new_state, temperature=70)
+
+        # these values will be used when we update next time
+        self.last_state = new_state        
         self.last_reward = reward
+
+        # the reward window is used for calculating the score
         self.reward_window.append(reward)
         if len(self.reward_window) > 1000:
             del self.reward_window[0]
 
-        if self.memory.size() >= 2:
-            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(2)
+        # improve the neural network via experience replay
+        batch_size = 100
+        if self.memory.size() >= batch_size:
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(batch_size)
             self.learn(batch_state, batch_next_state, batch_action, batch_reward)
 
         return self.last_action
 
-
+    def score(self):
+        return np.mean(self.reward_window)
 
     def save(self):
-        pass
+        """
+        Saves the model's and optimizer's parameters to the 'brain.pt' file.
+        """
+
+        # When saving a general checkpoint, to be used for either inference or resuming training, you must save 
+        # more than just the model’s state_dict. It is important to also save the optimizer’s state_dict, as this 
+        # contains buffers and parameters that are updated as the model trains. Other items that you may want to 
+        # save are the epoch you left off on, the latest recorded training loss, external torch.nn.Embedding layers, etc.
+        torch.save({'model' : self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict()}
+                    , "brain.pt")
+        
 
     def load(self):
-        pass
+        """
+        Load the model's and optimizer's parameters from the 'brain.pt' file.
+        """
+
+        # To load the items, first initialize the model and optimizer, then load the dictionary locally using torch.load(). 
+        # From here, you can easily access the saved items by simply querying the dictionary as you would expect.
+        
+        checkpoint = torch.load("brain.pt")
+        if len(checkpoint)<1:
+            print("Failed to load the model.")
+            return
+
+        self.model.load_state_dict(checkpoint['model'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        
+        # Remember that you must call model.eval() to set dropout and batch normalization layers to evaluation mode before 
+        # running inference. Failing to do this will yield inconsistent inference results. If you wish to resuming training, 
+        # call model.train() to ensure these layers are in training mode.
+        self.model.train()
 
 
 brain = Brain(5, 3, 0.3)
+a = brain.score()
+print(a)
 a = brain.update(1., (1.,2.,3.,4.,5.))
 a = brain.update(2, (0.1, 0.2, 0.3, 0.4, 0.5))
 a = brain.update(0, (1.6, 1.7, 1.8, 1.9, 1.1))

@@ -15,9 +15,10 @@ from kivy.config import Config
 from kivy.properties import NumericProperty, ReferenceListProperty, ObjectProperty
 from kivy.vector import Vector
 from kivy.clock import Clock
+from kivy.graphics import *
 
 # Importing the Brain object from our AI in ai-my.py
-from ai-my import Brain
+from brain import Brain
 
 # Adding this line if we don't want the right click to put a red point
 Config.set('input', 'mouse', 'mouse,multitouch_on_demand')
@@ -43,6 +44,12 @@ def init():
     sand = np.zeros((longueur,largeur)) # initializing the sand array with only zeros
     goal_x = 20 # the goal to reach is at the upper left of the map (the x-coordinate is 20 and not 0 because the car gets bad reward if it touches the wall)
     goal_y = largeur - 20 # the goal to reach is at the upper left of the map (y-coordinate)
+
+    with app.painter.canvas:          
+        Color(1., 0, 0)
+        Rectangle(pos=(goal_x, goal_y), size=(10,10))
+
+    global first_update
     first_update = False # trick to initialize the map only once
 
 # Initializing the last distance
@@ -138,32 +145,43 @@ class Game(Widget):
 
         if sand[int(self.car.x),int(self.car.y)] > 0: # if the car is on the sand
             self.car.velocity = Vector(1, 0).rotate(self.car.angle) # it is slowed down (speed = 1)
-            last_reward = -1 # and reward = -1
+            last_reward = -10 # and reward = -1
         else: # otherwise
             self.car.velocity = Vector(6, 0).rotate(self.car.angle) # it goes to a normal speed (speed = 6)
             last_reward = -0.2 # and it gets bad reward (-0.2)
             if distance < last_distance: # however if it getting close to the goal
-                last_reward = 0.1 # it still gets slightly positive reward 0.1
+                last_reward = 3.3 # it still gets slightly positive reward 0.1
 
         if self.car.x < 10: # if the car is in the left edge of the frame
             self.car.x = 10 # it is not slowed down
-            last_reward = -1 # but it gets bad reward -1
+            last_reward = -10 # but it gets bad reward -1
         if self.car.x > self.width-10: # if the car is in the right edge of the frame
             self.car.x = self.width-10 # it is not slowed down
-            last_reward = -1 # but it gets bad reward -1
+            last_reward = -10 # but it gets bad reward -1
         if self.car.y < 10: # if the car is in the bottom edge of the frame
             self.car.y = 10 # it is not slowed down
-            last_reward = -1 # but it gets bad reward -1
+            last_reward = -10 # but it gets bad reward -1
         if self.car.y > self.height-10: # if the car is in the upper edge of the frame
             self.car.y = self.height-10 # it is not slowed down
-            last_reward = -1 # but it gets bad reward -1
+            last_reward = -10 # but it gets bad reward -1
 
-        if distance < 100: # when the car reaches its goal
+        if distance < 30: # when the car reaches its goal
+            #app.update_event.cancel()
             goal_x = self.width - goal_x # the goal becomes the bottom right corner of the map (the downtown), and vice versa (updating of the x-coordinate of the goal)
             goal_y = self.height - goal_y # the goal becomes the bottom right corner of the map (the downtown), and vice versa (updating of the y-coordinate of the goal)
+            last_reward = 10
+            with app.painter.canvas:          
+                Color(0.,0.,0)
+                Rectangle(pos=(self.width - goal_x, self.height - goal_y), size=(10,10))
+                Color(1., 0, 0)
+                Rectangle(pos=(goal_x, goal_y), size=(10,10))
+
+        app.title = "{0:.4f}".format(distance)    
 
         # Updating the last distance from the car to the goal
         last_distance = distance
+
+        
 
 # Painting for graphic interface (see kivy tutorials: https://kivy.org/docs/tutorials/firstwidget.html)
 
@@ -202,7 +220,7 @@ class CarApp(App):
     def build(self): # building the app
         parent = Game()
         parent.serve_car()
-        Clock.schedule_interval(parent.update, 1.0 / 60.0)
+        self.update_event = Clock.schedule_interval(parent.update, 1.0 / 60.0)
         self.painter = MyPaintWidget()
         clearbtn = Button(text='clear')
         savebtn = Button(text='save',pos=(parent.width,0))
@@ -233,4 +251,7 @@ class CarApp(App):
 
 # Running the app
 if __name__ == '__main__':
-    CarApp().run()
+    global app
+    app = CarApp()
+    app.run()
+    #CarApp().run()
