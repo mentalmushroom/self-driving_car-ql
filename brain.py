@@ -334,15 +334,11 @@ class Brain():
         self.model.train()
 
 
-brain = Brain(5, 3, 0.3)
+""" brain = Brain(5, 3, 0.3)
 a = brain.score()
 print(a)
 a = brain.update(1., (1.,2.,3.,4.,5.))
 a = brain.update(2, (0.1, 0.2, 0.3, 0.4, 0.5))
 a = brain.update(0, (1.6, 1.7, 1.8, 1.9, 1.1))
-
-#a = brain.choose_action((1,2,3,4,5))
-#brain.update((1.,2.,3.,4.,5.), (6.,7.,8.,9.,10.), 1, 2.)
-#brain.update((0.1,0.2,0.3,0.4,0.5), (0.6,0.7,0.8,0.9,0.1), 0, 4.)
-#brain.update((1.1,1.2,1.3,1.4,1.5), (1.6,1.7,1.8,1.9,1.1), 2, 3.)
 print(a)
+ """
