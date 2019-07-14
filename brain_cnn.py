@@ -1,0 +1,375 @@
+# Self-Driving Car 
+#
+# Created by Yarko
+
+import numpy as np
+import random
+import torch
+#import torch.autograd
+from scipy.misc import imresize
+
+
+class NeuralNetwork(torch.nn.Module):
+    """
+    The architecture of our neural network.
+
+    Parameters:
+        width: The horizontal size of the input of the convolutional neural network.
+        height: The vertical size of the input of the convolutional neural network.
+        n_actions: The number of possible actions to take.
+    """
+    
+    def __init__(self, width, height, n_actions):
+        
+        super().__init__()
+        
+        #self.n_states = n_states
+        #self.n_actions = n_actions
+
+        self.cv1 = torch.nn.Conv2d(in_channels=1, out_channels=32, kernel_size=5, stride=1)
+        self.cv2 = torch.nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1)
+        self.cv3 = torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=2, stride=1)
+        t = torch.rand(1, 1, height, width)
+        flat = self.conv_flatten(t)
+        neuron_num = flat.size(1)        
+        #neuron_num = self.count_neurons(t)
+        self.fc1 = torch.nn.Linear(in_features=neuron_num, out_features=32)    
+        self.fc2 = torch.nn.Linear(in_features=32, out_features=n_actions)
+        #self.fc3 = torch.nn.Linear(64, n_actions)
+
+    def count_neurons(self, x):
+        # the number of neurons can be calculated this way:
+        #h1 = (height + 2*self.cv1.padding[0] - self.cv1.kernel_size[0])//self.cv1.stride[0] + 1
+        #w1 = (width + 2*self.cv1.padding[1] - self.cv1.kernel_size[1])//self.cv1.stride[1] + 1
+        #h1 = (h1 - 3)//2 + 1 # the first pooling 
+        #w1 = (w1 - 3)//2 + 1 # layer
+        #neuron_num1 = h1*w1*self.cv1.out_channels
+        #h2 = (h1 + 2*self.cv2.padding[0] - self.cv2.kernel_size[0])//self.cv2.stride[0] + 1
+        # w1 = (w1 + 2*self.cv2.padding[1] - self.cv2.kernel_size[1])//self.cv2.stride[1] + 1
+        # h2 = (h2 - 3)//2 + 1 # the second pooling
+        # w2 = (w2 - 3)//2 + 1 # layer
+        # neuron_num2 = h2*w2*self.cv2.out_channels
+        # ...
+        pass 
+
+    def conv_flatten(self, x):
+        """
+        Passes the batch of input states through the layers of convolutional neural network 
+        and flattens the output.
+
+        Parameters:
+            x: The batch of input states as a numpy array: [batch, channels, height, width].
+
+        Returns:
+            The flattened output of the CNN for each input from the batch.
+        """
+        x = torch.nn.functional.relu(torch.nn.functional.max_pool2d(self.cv1(x), 3, 2))
+        x = torch.nn.functional.relu(torch.nn.functional.max_pool2d(self.cv2(x), 3, 2))
+        x = torch.nn.functional.relu(torch.nn.functional.max_pool2d(self.cv3(x), 3, 2))
+        x = x.view(x.size(0), -1) # preserve batch dimension
+        return x
+
+    def forward(self, x):
+        """
+        Passes the batch of input states through the convolutional neural network and several fully-connected layers.
+
+        Parameters:
+            x: The batch of input states as a numpy array: [batch, channels, height, width].
+
+        Returns:
+            The transformed array of size [batch, n_actions].
+        """
+
+        x = self.conv_flatten(x)
+        x = torch.nn.functional.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+
+class ReplayMemory():
+    """
+    Experience replay allows to learn from multiple different experiences from the past,
+    because learning from one experience at a time is not sufficient. The memory window
+    stores previous experiences (transitions), including rare cases like sharp turns,
+    so they don't get forgotten. This memory will be used to predict future actions.
+
+    Parameters:
+        capacity: The size of the memory window.
+    """
+
+    def __init__(self, capacity):
+        
+        # the number of transitions to store
+        self.capacity = capacity
+
+        # the list of previous transitions
+        self.transitions = []
+
+
+    
+    def push(self, transition):
+        """
+        Appends a new transition to the memory. The size of the memory is limited by the capacity parameter.
+        
+        Parameters:
+            transition: A tuple of tensors representing the last state, the new state, the last action, and the last reward.
+        """
+        
+        # transition = (last state, new state, last action, last reward)
+        self.transitions.append(transition)
+        if len(self.transitions)>self.capacity:
+            del self.transitions[0]
+
+    def size(self):
+        """        
+        Returns:
+            The actual number of entries in the memory.
+        """
+        return len(self.transitions)
+    
+    '''
+    def sample(self, batch_size):
+        """
+        Extracts random samples from the memory. Randomization prevents from biasing to similar past experiences,
+        e.g. driving along the straight road. Turn experiences still have a chance to be selected from the memory.
+
+        Parameters:
+            batch_size: The number of samples to extract.
+
+        Returns:
+            An iterator to a sequence of tensors representing batches of last states, 
+            new states, last actions, and last rewards.
+        """
+
+        # get batch_size random transitions
+        samples = random.sample(self.transitions, batch_size)
+        # zip will group states, new states, actions, and rewards into batches (each batch is a tuple of batch_size)
+        samples = zip(*samples)
+
+        # torch.cat() will convert each batch (tuple) into a tensor with elements in rows (0 dimension)
+        # requires_grad_() enables gradient calculation in place
+        samples = map(lambda x: torch.cat(x, 0).requires_grad_(True), samples)
+        return samples
+    '''
+
+    def sample(self, batch_size):
+        """
+        Extracts random samples from the memory. Randomization prevents from biasing to similar past experiences,
+        e.g. driving along the straight road. Turn experiences still have a chance to be selected from the memory.
+
+        Parameters:
+            batch_size: The number of samples to extract.
+
+        Returns:
+            An iterator to a sequence of batches of last states, new states, last actions, and last rewards.
+        """
+
+        samples = random.sample(self.transitions, batch_size)
+        samples = zip(*samples)
+        # do we really need gradients for our samples?
+        #samples = map(lambda x: torch.tensor(x, requires_grad=True), samples)        
+        samples = map(lambda x: torch.tensor(x), samples)
+        return samples
+
+
+class Brain():
+    """
+    Deep Q-Learning implementation.
+
+    Parameters:
+        width: The horizontal size of the input state.
+        height: The vertical size of the input state. 
+        n_actions: The number of possible actions the car can make.
+        gamma: The discount factor in the Bellman equation Q(s,a) = R(s,a) + gamma*max(a': Q(s',a')).
+            The closer it is to 0, the more AI will try to optimize the current reward. If it is closer to 1,
+            AI will try to optimize the future reward more. 
+    """
+
+    def __init__(self, width, height, n_actions, gamma):
+        self.gamma = gamma        
+        self.width = width
+        self.height = height
+        self.model = NeuralNetwork(width, height, n_actions)
+        self.memory = ReplayMemory(100000)
+        self.optimizer = torch.optim.Adam(self.model.parameters())
+        #self.last_state = np.zeros((1, width, height), dtype=np.float32)
+        self.last_state = np.zeros((1, height, width), dtype=np.float32)
+        self.last_action = 0
+        self.last_reward = 0
+        # a history of rewards that will be used for calculation of the mean reward over last N rewards        
+        self.reward_window = [0]
+
+
+    def choose_action(self, state, temperature=10):
+        """
+        Randomly draw an action according to the probability distribution of possible actions calculated via softmax. 
+        The AI A-Z Handbook suggests that it's a better method than selecting an action with the highest Q(s,a).
+
+        Parameters:
+            state: The current state.
+            temperature: Controls the confidence of the choice. The higher the temperature, the more likely actions
+                with high probabilities will be chosen. 
+
+        Returns:
+            The action selected.
+        """
+
+        with torch.no_grad(): # we don't need gradient computation here
+            t = torch.tensor(state, dtype=torch.float).unsqueeze(0) # add batch dimension
+            out = self.model(t)
+            p = torch.nn.functional.softmax(out * temperature, dim=-1)
+
+        # In probability theory, the multinomial distribution is a generalization of the binomial distribution. 
+        # For example, it models the probability of counts for rolling a k-sided die n times. For n independent 
+        # trials each of which leads to a success for exactly one of k categories, with each category having a 
+        # given fixed success probability, the multinomial distribution gives the probability of any particular 
+        # combination of numbers of successes for the various categories.
+        # When k is 2 and n is 1, the multinomial distribution is the Bernoulli distribution. When k is 2 and 
+        # n is bigger than 1, it is the binomial distribution. When k is bigger than 2 and n is 1, it is the 
+        # categorical distribution.
+        action = p.multinomial(num_samples=1)
+        return action.item()
+
+    def learn(self, batch_state, batch_next_state, batch_action, batch_reward):
+        """
+        Adjust the weights of the neural network to better fit the environment.
+
+        Parameters:
+            batch_state: A tuple of states from the memory.
+            batch_next_states: A tuple of states following the states from batch_state.
+            batch_action: A tuple of actions taken at each state from batch_state.
+            batch_reward: A tuple of reward values received after taking actions from batch_action being in 
+                the states from batch_state.
+        """
+
+        # get the list of Q-values for each state sampled from the memory
+        q = self.model(batch_state)
+        
+        # from the list of Q-values for each state in the batch_state we need only those which have been chosen
+        q = q.gather(1, batch_action.unsqueeze(1))
+
+        # get Q-values for the next states
+        q_next = self.model(batch_next_state)
+
+        # Get the best Q-value for each next state from the batch.
+        # To use a computed variable in a subgraph that doesn't require differentiation use var_no_grad = var.detach().
+        # Probably, we could disable gradients after calling max().
+        # https://discuss.pytorch.org/t/detach-no-grad-and-requires-grad/16915/6
+        q_next, _ = q_next.detach().max(dim=1)  
+
+        # the target Q-values are computed with the Bellman equation: R(s,a) + gamma*max(a': Q(s',a'))
+        q_target = batch_reward + self.gamma * q_next
+
+        # Creates a criterion that uses a squared term if the absolute element-wise error falls below 1 and an L1 term otherwise. 
+        # It is less sensitive to outliers than the MSELoss and in some cases prevents exploding gradients. 
+        # Also known as the Huber loss:
+        # https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
+        loss = torch.nn.functional.smooth_l1_loss(q, q_target)
+
+        # We need to set the gradients to zero before starting to do backpropragation because PyTorch accumulates the gradients 
+        # on subsequent backward passes.
+        # https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch
+        # https://stackoverflow.com/questions/44732217/why-do-we-need-to-explicitly-call-zero-grad
+        self.optimizer.zero_grad() 
+
+        # Setting retain_graph = True is claimed to improve performance:
+        # https://www.udemy.com/artificial-intelligence-az/learn/lecture/7147758#questions
+        # However, from PyTorch documentation:
+        # If False, the graph used to compute the grads will be freed. Note that in nearly all cases setting this option to True 
+        # is not needed and often can be worked around in a much more efficient way.
+        loss.backward(retain_graph = True)
+
+        # adjust the weights of the neural network
+        self.optimizer.step()
+
+
+    def update(self, sand, x, y, goal_x, goal_y, reward):
+        """
+        Adds a new transition to the memory and adjusts the neural network.
+
+        Parameters:
+            sand: The map containing zeros where the map is free and ones where there is sand. 
+            x: The horizontal coordinate of the car on the map sand.
+            y: The vertical coordinate of the car on the map sand.
+            goal_x: The horizontal coordinate of the destination point on the map sand.
+            goal_y: The vertical coordinate of the destination point on the map sand.
+            reward: The reward for taking the action which led to the current state.
+
+        Returns:
+            A new action to take.
+        """
+
+        # reduce the size of the map for computational efficiency
+        w_orig, h_orig = sand.shape
+        w_model, h_model = self.width, self.height
+        new_state = imresize(sand, size=(w_model, h_model), mode='F')        
+        
+        # mark the position of the car and the destination on the scaled map
+        new_state[x*w_model//w_orig, y*h_model//h_orig] = 2
+        new_state[goal_x*w_model//w_orig, goal_y*h_model//h_orig] = 3
+
+        new_state = new_state.transpose() # the cnn accepts inputs in the format (N, C, H, W)        
+        new_state = np.expand_dims(new_state, axis=0) # add channels dimension
+
+        # record the new experience
+        self.memory.push((self.last_state, new_state, self.last_action, self.last_reward))
+
+        # let the neural network decide what action to take in the new state
+        self.last_action = self.choose_action(new_state, temperature=70)
+
+        # these values will be used when we update next time
+        self.last_state = new_state        
+        self.last_reward = reward
+
+        # the reward window is used for calculating the score
+        self.reward_window.append(reward)
+        if len(self.reward_window) > 1000:
+            del self.reward_window[0]
+
+        # improve the neural network via experience replay
+        batch_size = 10
+        if self.memory.size() >= batch_size:
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(batch_size)
+            self.learn(batch_state, batch_next_state, batch_action, batch_reward)
+
+        return self.last_action
+
+    def score(self):
+        return np.mean(self.reward_window)
+
+    def save(self):
+        """
+        Saves the model's and optimizer's parameters to the 'brain.pt' file.
+        """
+
+        # When saving a general checkpoint, to be used for either inference or resuming training, you must save 
+        # more than just the model’s state_dict. It is important to also save the optimizer’s state_dict, as this 
+        # contains buffers and parameters that are updated as the model trains. Other items that you may want to 
+        # save are the epoch you left off on, the latest recorded training loss, external torch.nn.Embedding layers, etc.
+        torch.save({'model' : self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict()}
+                    , "brain.pt")
+        
+
+    def load(self):
+        """
+        Load the model's and optimizer's parameters from the 'brain.pt' file.
+        """
+
+        # To load the items, first initialize the model and optimizer, then load the dictionary locally using torch.load(). 
+        # From here, you can easily access the saved items by simply querying the dictionary as you would expect.
+        
+        checkpoint = torch.load("brain.pt")
+        if len(checkpoint)<1:
+            print("Failed to load the model.")
+            return
+
+        self.model.load_state_dict(checkpoint['model'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        
+        # Remember that you must call model.eval() to set dropout and batch normalization layers to evaluation mode before 
+        # running inference. Failing to do this will yield inconsistent inference results. If you wish to resuming training, 
+        # call model.train() to ensure these layers are in training mode.
+        self.model.train()
+
